@@ -276,3 +276,61 @@ de-framework/framework/
     ├── shield.yaml
     └── growth.yaml
 ```
+
+---
+
+## Lessons Learned — From Real Production Runs
+
+*Collected 2026-09-26 after first full quarter of operation.*
+
+### Lesson 1: Monitoring DEs — target ≤ 40 steps (achievable)
+
+Monitoring DEs (ops-style) that check 3-7 services typically run in 25-40 steps on a complete, successful session. This is the most reliable DE type. Key success factors:
+- One `run.py` script pre-aggregates all service checks
+- STOP block references specific log file, not "take one action"
+- Session is `complete`, not `max_iterations_reached`
+
+### Lesson 2: Research DEs — target ≤ 30 steps (requires pre_fetch benchmark cache)
+
+GEO/research DEs (grow_*-style) that benchmark AI search visibility WILL exceed 43 steps if they run Perplexity queries inside the ReAct loop. Each query = 1-3 tool calls. 12 queries × 3 avg = 36 steps before any content writing.
+
+**The fix:** move benchmark queries to `pre_fetch.py` via `run_benchmark_if_stale()`. Session only reads the cached result and writes ONE content improvement.
+
+```python
+# pre_fetch.py addition for research DEs
+def run_benchmark_if_stale():
+    cache_age = get_soav_cache_age()  # Check soav_history.json or benchmark_*.json
+    if cache_age > 21600:  # 6 hours
+        subprocess.run(['python3', str(benchmark_script)], timeout=300)
+```
+
+### Lesson 3: STOP block must be SPECIFIC — "stop after writing X to Y file"
+
+Generic STOP blocks fail. These patterns do NOT work:
+- ❌ "stop after 5-10 steps" — agent decides the cron work requires more
+- ❌ "identify ONE action" — agent spends 20 steps identifying before acting
+
+These patterns work:
+- ✅ "DONE = workspace/log.md updated. Stop immediately after that write."
+- ✅ "HARD LIMIT: max 4 tool calls. After 4: write whatever you have and stop."
+- ✅ "DO NOT run Perplexity in-session. DO NOT search for API keys."
+
+### Lesson 4: measure_soav.py must know real data paths
+
+The generic `measure_soav.py` reads from `workspace/soav_latest.json`. But many agents store benchmark results in a different path (e.g., `/root/.openclaw/workspace/agents/{de}/soav_history.json`). When the path is wrong, `measure_soav.py` returns `not_measured` — which triggers the agent to run the full benchmark in-session.
+
+**The fix:** Add path fallbacks to `measure_soav.py`:
+```python
+# Fallback: agent workspace soav_history.json
+agent_workspace = Path('/root/.openclaw/workspace/agents') / DE_DIR.name
+soav_hist = agent_workspace / 'soav_history.json'
+if soav_hist.exists():
+    # Extract score from last cycle ...
+```
+
+### Lesson 5: No STOP block = guaranteed max_iterations
+
+One DE (aria) had NO STOP block at all. It consistently hit 65 steps. Adding a STOP block with concrete done-conditions dropped it to the target range immediately.
+
+Every DE job.md must have a `## STOP` section as the FIRST content block.
+

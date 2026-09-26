@@ -215,3 +215,106 @@ This routing block is always at the top of `job.md`, right after the H1 heading.
 | `grow_vwupass` | Grow | ✓ | SoAV |
 | `ops` | Ops | — | (own logic, skip) |
 | `aria` | Special | — | (own logic, skip) |
+
+---
+
+## Pattern Variant: Research Cache Pattern
+
+*For DEs that run external queries (Perplexity, web search, API benchmarks) as part of their core KPI measurement.*
+
+### Problem
+
+Research DEs (GEO, growth, content) must query external AI search engines to measure their KPI (SoAV = Share of AI Voice). Running these queries inside the ReAct session adds 20-40 steps per session, causing `max_iterations_reached` before any content is written.
+
+### Solution
+
+Move the external queries to `pre_fetch.py` via `run_benchmark_if_stale()`. The session then only reads the cached result from the briefing and takes one content action.
+
+```python
+# Add to pre_fetch.py for research DEs:
+def run_benchmark_if_stale():
+    """Run benchmark in pre_fetch if data is > 6h old.
+    Moves expensive external queries OUT of the ReAct loop.
+    """
+    import time
+    
+    # Determine benchmark script location
+    benchmark_candidates = [
+        WORKSPACE / 'benchmark.py',      # local workspace
+        WORKSPACE / 'geo_benchmark.py',  # grow_agentic_living pattern
+        AGENT_WORKSPACE / 'benchmark_v2.py',  # remote agent workspace
+    ]
+    benchmark_script = next((b for b in benchmark_candidates if b.exists()), None)
+    
+    # Check cache freshness
+    cache_files = [WORKSPACE / 'soav_latest.json', AGENT_WORKSPACE / 'soav_history.json']
+    cache_age = min(
+        (time.time() - f.stat().st_mtime for f in cache_files if f.exists()),
+        default=99999
+    )
+    
+    if cache_age <= 21600 or benchmark_script is None:
+        return  # Fresh enough or no script — skip
+    
+    # Run with generous timeout; failure is non-fatal
+    try:
+        subprocess.run(['python3', str(benchmark_script)], 
+                      timeout=300, cwd=str(benchmark_script.parent),
+                      capture_output=True)
+    except Exception:
+        pass  # pre_fetch must never crash
+```
+
+### kpis.yaml annotation for Research DEs
+
+```yaml
+de: grow_myproduct
+kpis:
+  - id: soav_score
+    name: SoAV Score (Perplexity)
+    target: 25
+    unit: "%"
+    direction: up
+    # Note: measure reads CACHED result; benchmark runs in pre_fetch.py
+    measure: "python3 workspace/measure_soav.py 2>/dev/null || echo 'not_measured'"
+    frequency: per_session
+
+pre_fetch_extensions:
+  - type: research_cache
+    script: workspace/benchmark.py          # or benchmark_v2.py
+    cache_file: workspace/soav_latest.json  # or soav_history.json
+    max_age_hours: 6
+    timeout_seconds: 300
+```
+
+### measure_soav.py — Path Fallbacks
+
+The `measure_soav.py` script must check multiple locations for cached SoAV data. Agents often store benchmark results in a different directory from the DE workspace.
+
+Priority order:
+1. `workspace/soav_latest.json` → `.soav_score` or `.soav_pct`
+2. `workspace/benchmark_YYYY-MM-DD.json` → `.soav_pct`
+3. `/root/.openclaw/workspace/agents/{de}/soav_history.json` → last cycle pct_cited
+4. `/root/.openclaw/workspace/agents/{de}/soav_latest.json` → same fields
+
+If all miss → `not_measured`.
+
+### STOP Block for Research DEs
+
+```markdown
+### trigger_type = "cron" (HARD LIMIT: max 10 tool calls total)
+Your pre_fetch.py has already run AND cached the latest SoAV score via benchmark.
+DONE = workspace/log.md updated with today's entry.
+
+1. Read the briefing SoAV score. On-track (≥ target %) or off-track?
+   - ON TRACK: write ONE line to workspace/log.md. STOP immediately.
+   - OFF TRACK:
+     a. Generate improved HTML for the worst-scoring query cluster.
+     b. Deploy with ONE exec_shell command.
+     c. Write ONE line to workspace/log.md. STOP.
+
+2. ⚠️ DO NOT run external queries in-session. Benchmark runs in pre_fetch.py.
+3. ⚠️ DO NOT search for API keys. If deploy fails → log it and stop.
+4. After 10 tool calls: write to log.md and STOP. No exceptions.
+```
+

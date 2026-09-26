@@ -219,3 +219,39 @@ Session Start
 ```
 
 A session that exits without messaging is a success if KPIs are on track. Silence = good. Noise = signal.
+
+---
+
+## DE Performance Benchmarks — Real-World Data
+
+*From production runs, collected 2026-09-26.*
+
+### Session Step Counts by DE Type
+
+| DE Type | Examples | Typical Range | Healthy | Warning | Action |
+|---|---|---|---|---|---|
+| Monitoring | ops | 25-40 steps | ✅ complete | 40-55 steps | 55+ steps or max_iter |
+| Security | shield | 30-55 steps | ✅ complete | 55-70 steps | 70+ steps or max_iter |
+| Efficiency (admin) | flow, coach | 10-25 steps | ✅ complete | 25-35 steps | 35+ steps or max_iter |
+| Research/GEO | grow_* | 10-30 steps | ✅ complete | 30-45 steps | 45+ steps or max_iter |
+| Growth (experiments) | growth | 15-40 steps | ✅ complete | 40-55 steps | 55+ steps or max_iter |
+
+### Warning: If cron session > 30 steps → STOP Block likely ineffective
+
+When a scheduled session consistently hits 40+ steps, the STOP block is not working. Diagnose:
+
+1. **Is `not_measured` in the briefing?** → `measure_soav.py` or measure command is reading from wrong path. Fix the path.
+2. **Is the agent running benchmarks in-session?** → Move benchmark to `pre_fetch.py` via `run_benchmark_if_stale()`.
+3. **Is the STOP block vague?** → Replace with specific file target + hard tool-call limit.
+4. **Is there NO STOP block?** → Add one immediately. Every job.md must start with `## STOP`.
+
+### Expected Completion Rate by Phase
+
+| Phase | Target completion rate |
+|---|---|
+| Week 1-2 (bootstrap) | 40% — agents in benchmark mode, learning environment |
+| Week 3-4 (early operation) | 60% — most KPIs measured, STOP blocks tuned |
+| Month 2+ (production) | 80%+ — steady state |
+
+Below 60% after month 2 = systemic problem (API keys, wrong paths, or vague STOP blocks).
+

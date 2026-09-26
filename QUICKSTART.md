@@ -62,6 +62,32 @@ chief         ← "Project Director" JD (chef pattern)
 
 ---
 
+## 1.5. Classify Each DE by Type
+
+Before creating any files, classify every DE you mapped in Step 1. Session step budgets and STOP block patterns differ by type.
+
+| Type | Characteristics | Step Budget | STOP Pattern |
+|---|---|---|---|
+| **Monitoring** | Checks services, pings endpoints, detects outages | ≤ 40 steps | "After run.py check: log 1 line. STOP." |
+| **Research/GEO** | Benchmarks external AI search, generates content | ≤ 30 steps | "DO NOT run queries in-session. pre_fetch does it." |
+| **Analysis** | Processes data, computes metrics, detects trends | ≤ 35 steps | "Read briefing → compute one metric → log. STOP." |
+| **Coordination** | Routes decisions, multi-DE communication | ≤ 25 steps | "Read briefing → ONE decision or action. STOP." |
+| **Content** | Creates, improves, deploys pages/documents | ≤ 40 steps | "ONE page write/deploy per session. STOP." |
+| **Security** | Scans, audits, detects anomalies | ≤ 55 steps | "Run scan script → log findings. STOP." |
+
+**Why this matters:** Research/GEO DEs need `run_benchmark_if_stale()` in `pre_fetch.py` or they will try to run external queries in-session and hit `max_iterations_reached`. Every other type can use the generic `pre_fetch.py` without modification.
+
+Add the type to each DE's `de.json`:
+```json
+{
+  "name": "grow_myproduct",
+  "type": "research",
+  ...
+}
+```
+
+---
+
 ## 2. Create Directory Structure
 
 For each DE, run:
